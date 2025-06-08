@@ -24,7 +24,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
 
     try {
       // Verifica se o e-mail existe
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?user=eq.${email}`, {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${email}`, {
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           'Content-Type': 'application/json'

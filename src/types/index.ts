@@ -1,6 +1,6 @@
 export interface User {
   id?: number;
-  user: string; // email
+  email: string; // changed from 'user' to 'email'
   password: string;
   created_at?: string;
 }

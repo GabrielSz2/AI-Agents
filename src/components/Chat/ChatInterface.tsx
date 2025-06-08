@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Loader2 } from 'lucide-react';
 import { Agent, Message } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
-import { messagesAPI } from '../../utils/supabase';
+import { messagesAPI, agentsAPI } from '../../utils/supabase';
 import { Sidebar } from './Sidebar';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
@@ -29,7 +29,7 @@ export const ChatInterface: React.FC = () => {
   // Carrega mensagens quando um agente é selecionado
   useEffect(() => {
     if (selectedAgent && user) {
-      loadMessages(user.user, selectedAgent.id);
+      loadMessages(user.email, selectedAgent.id);
     }
   }, [selectedAgent, user]);
 
@@ -41,35 +41,12 @@ export const ChatInterface: React.FC = () => {
   const loadAgents = async () => {
     setIsLoadingAgents(true);
     try {
-      // Simula chamada à API do Supabase
-      // Substitua pela implementação real usando agentsAPI.getAllAgents()
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock data - substitua pela chamada real
-      const mockAgents: Agent[] = [
-        {
-          id: 1,
-          name: "Ana Assistente",
-          description: "Especialista em atendimento geral",
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 2,
-          name: "Carlos Técnico",
-          description: "Suporte técnico especializado",
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 3,
-          name: "Sofia Vendas",
-          description: "Consultora de vendas e produtos",
-          created_at: new Date().toISOString()
+      const { agents: loadedAgents, error } = await agentsAPI.getAllAgents();
+      if (!error) {
+        setAgents(loadedAgents);
+        if (loadedAgents.length > 0 && !selectedAgent) {
+          setSelectedAgent(loadedAgents[0]);
         }
-      ];
-      
-      setAgents(mockAgents);
-      if (mockAgents.length > 0 && !selectedAgent) {
-        setSelectedAgent(mockAgents[0]);
       }
     } catch (error) {
       console.error('Erro ao carregar agentes:', error);
@@ -110,7 +87,7 @@ export const ChatInterface: React.FC = () => {
     try {
       // Adiciona mensagem do usuário
       const userMessage: Message = {
-        user_email: user.user,
+        user_email: user.email,
         agent_id: selectedAgent.id,
         content: messageContent,
         is_from_user: true,
@@ -119,7 +96,7 @@ export const ChatInterface: React.FC = () => {
 
       // Salva mensagem do usuário no Supabase
       const { message: savedUserMessage, error } = await messagesAPI.sendMessage(
-        user.user,
+        user.email,
         selectedAgent.id,
         messageContent,
         true
@@ -140,7 +117,7 @@ export const ChatInterface: React.FC = () => {
       
       // Salva resposta do agente
       const { message: savedAgentMessage, error: agentError } = await messagesAPI.sendMessage(
-        user.user,
+        user.email,
         selectedAgent.id,
         agentResponse,
         false
@@ -153,7 +130,7 @@ export const ChatInterface: React.FC = () => {
       } else {
         // Se falhar, adiciona localmente
         const agentMessage: Message = {
-          user_email: user.user,
+          user_email: user.email,
           agent_id: selectedAgent.id,
           content: agentResponse,
           is_from_user: false,

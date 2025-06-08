@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div>
               <p className="text-sm font-medium text-white truncate max-w-32">
-                {user?.user || 'Usuário'}
+                {user?.email || 'Usuário'}
               </p>
               <p className="text-xs text-gray-400">Online</p>
             </div>

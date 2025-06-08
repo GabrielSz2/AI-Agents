@@ -18,7 +18,7 @@ export const authAPI = {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('user', email)
+      .eq('email', email) // changed from 'user' to 'email'
       .single();
     
     return { user: data, error };
@@ -28,7 +28,7 @@ export const authAPI = {
   async registerUser(email: string, password: string) {
     const { data, error } = await supabase
       .from('users')
-      .insert([{ user: email, password }])
+      .insert([{ email, password }]) // changed from 'user' to 'email'
       .select()
       .single();
     
@@ -40,7 +40,7 @@ export const authAPI = {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('user', email)
+      .eq('email', email) // changed from 'user' to 'email'
       .eq('password', password)
       .single();
     
