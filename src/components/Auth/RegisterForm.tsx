@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Lock, UserPlus, ArrowRight } from 'lucide-react';
+import { Mail, Lock, UserPlus, ArrowRight, Key } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface RegisterFormProps {
@@ -10,6 +10,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [accessKey, setAccessKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -19,7 +20,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
     e.preventDefault();
     
     // Validações básicas
-    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+    if (!email.trim() || !password.trim() || !confirmPassword.trim() || !accessKey.trim()) {
       setError('Todos os campos são obrigatórios.');
       return;
     }
@@ -38,9 +39,9 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
     setLoading(true);
 
     try {
-      const success = await register(email, password);
+      const success = await register(email, password, accessKey);
       if (!success) {
-        setError('Erro ao criar conta. E-mail pode já estar em uso.');
+        setError('Erro ao criar conta. Verifique se o e-mail não está em uso e se a chave de acesso é válida.');
       }
     } catch (err) {
       setError('Erro interno. Tente novamente.');
@@ -63,6 +64,27 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="accessKey" className="block text-sm font-medium text-gray-300 mb-2">
+              Chave de Acesso
+            </label>
+            <div className="relative">
+              <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                id="accessKey"
+                value={accessKey}
+                onChange={(e) => setAccessKey(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                placeholder="Digite sua chave de acesso"
+                required
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Você precisa de uma chave válida para criar uma conta
+            </p>
+          </div>
+
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
               E-mail

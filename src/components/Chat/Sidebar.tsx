@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageCircle, LogOut, User } from 'lucide-react';
+import { MessageCircle, LogOut, User, Settings } from 'lucide-react';
 import { Agent } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -7,6 +7,7 @@ interface SidebarProps {
   agents: Agent[];
   selectedAgent: Agent | null;
   onSelectAgent: (agent: Agent) => void;
+  onShowAdmin: () => void;
   isLoading: boolean;
 }
 
@@ -14,6 +15,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   agents,
   selectedAgent,
   onSelectAgent,
+  onShowAdmin,
   isLoading
 }) => {
   const { user, logout } = useAuth();
@@ -51,16 +53,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <p className="text-sm font-medium text-white truncate max-w-32">
                 {user?.email || 'Usuário'}
               </p>
-              <p className="text-xs text-gray-400">Online</p>
+              <p className="text-xs text-gray-400">
+                {user?.is_admin ? 'Administrador' : 'Online'}
+              </p>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="p-2 text-gray-400 hover:text-white hover:bg-gray-600/50 rounded-lg transition-all"
-            title="Sair"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <div className="flex items-center space-x-1">
+            {user?.is_admin && (
+              <button
+                onClick={onShowAdmin}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-600/50 rounded-lg transition-all"
+                title="Painel Admin"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={logout}
+              className="p-2 text-gray-400 hover:text-white hover:bg-gray-600/50 rounded-lg transition-all"
+              title="Sair"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 

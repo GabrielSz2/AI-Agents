@@ -7,7 +7,11 @@ import { Sidebar } from './Sidebar';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 
-export const ChatInterface: React.FC = () => {
+interface ChatInterfaceProps {
+  onShowAdmin: () => void;
+}
+
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -112,8 +116,8 @@ export const ChatInterface: React.FC = () => {
       // Mostra indicador de digitação
       setIsTyping(true);
 
-      // Busca resposta do agente
-      const agentResponse = await messagesAPI.getAgentResponse(selectedAgent.id);
+      // Busca resposta do agente via webhook
+      const agentResponse = await messagesAPI.getAgentResponse(selectedAgent.id, messageContent);
       
       // Salva resposta do agente
       const { message: savedAgentMessage, error: agentError } = await messagesAPI.sendMessage(
@@ -158,6 +162,7 @@ export const ChatInterface: React.FC = () => {
         agents={agents}
         selectedAgent={selectedAgent}
         onSelectAgent={handleSelectAgent}
+        onShowAdmin={onShowAdmin}
         isLoading={isLoadingAgents}
       />
 
@@ -169,9 +174,17 @@ export const ChatInterface: React.FC = () => {
             <div className="bg-gray-800/30 backdrop-blur-sm border-b border-gray-700/50 p-6">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 bg-purple-600/30 rounded-xl flex items-center justify-center">
-                  <span className="text-lg font-medium text-purple-300">
-                    {selectedAgent.name.charAt(0).toUpperCase()}
-                  </span>
+                  {selectedAgent.avatar ? (
+                    <img 
+                      src={selectedAgent.avatar} 
+                      alt={selectedAgent.name}
+                      className="w-full h-full rounded-xl object-cover"
+                    />
+                  ) : (
+                    <span className="text-lg font-medium text-purple-300">
+                      {selectedAgent.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-white">
@@ -193,9 +206,17 @@ export const ChatInterface: React.FC = () => {
               ) : messages.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="w-16 h-16 bg-purple-600/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <span className="text-2xl font-medium text-purple-300">
-                      {selectedAgent.name.charAt(0).toUpperCase()}
-                    </span>
+                    {selectedAgent.avatar ? (
+                      <img 
+                        src={selectedAgent.avatar} 
+                        alt={selectedAgent.name}
+                        className="w-full h-full rounded-2xl object-cover"
+                      />
+                    ) : (
+                      <span className="text-2xl font-medium text-purple-300">
+                        {selectedAgent.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-lg font-medium text-white mb-2">
                     Inicie uma conversa com {selectedAgent.name}

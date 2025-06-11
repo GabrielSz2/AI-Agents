@@ -45,7 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const register = async (email: string, password: string): Promise<boolean> => {
+  const register = async (email: string, password: string, accessKey: string): Promise<boolean> => {
     try {
       // Verifica se o usuário já existe
       const { user: existingUser } = await authAPI.checkUserExists(email);
@@ -53,11 +53,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return false; // Usuário já existe
       }
 
-      const { user: newUser, error } = await authAPI.registerUser(email, password);
+      // Valida a chave de acesso
+      const { accessKey: validKey, error: keyError } = await authAPI.validateAccessKey(accessKey);
+      if (keyError || !validKey) {
+        return false; // Chave inválida ou já usada
+      }
+
+      // Registra o usuário
+      const { user: newUser, error } = await authAPI.registerUser(email, password, accessKey);
       
       if (error || !newUser) {
         return false;
       }
+
+      // Marca a chave como usada
+      await authAPI.markAccessKeyAsUsed(accessKey, email);
 
       setUser(newUser);
       setIsAuthenticated(true);

@@ -3,13 +3,18 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginForm } from './components/Auth/LoginForm';
 import { RegisterForm } from './components/Auth/RegisterForm';
 import { ChatInterface } from './components/Chat/ChatInterface';
+import { AdminPanel } from './components/Admin/AdminPanel';
 
 const AuthWrapper: React.FC = () => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const { isAuthenticated } = useAuth();
+  const [showAdmin, setShowAdmin] = useState(false);
+  const { isAuthenticated, user } = useAuth();
 
   if (isAuthenticated) {
-    return <ChatInterface />;
+    if (showAdmin && user?.is_admin) {
+      return <AdminPanel onBack={() => setShowAdmin(false)} />;
+    }
+    return <ChatInterface onShowAdmin={() => setShowAdmin(true)} />;
   }
 
   return (
