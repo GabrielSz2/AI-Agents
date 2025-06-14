@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Key, Users, Bot, ArrowLeft } from 'lucide-react';
+import { Plus, Edit2, Trash2, Key, Users, Bot, ArrowLeft, MessageSquare, Settings, Sparkles, Cog } from 'lucide-react';
 import { Agent, AccessKey } from '../../types';
 import { agentsAPI, accessKeysAPI } from '../../utils/supabase';
 import { AgentForm } from './AgentForm';
 import { AccessKeyManager } from './AccessKeyManager';
+import { SystemConfigManager } from './SystemConfigManager';
 
 interface AdminPanelProps {
   onBack: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'agents' | 'keys'>('agents');
+  const [activeTab, setActiveTab] = useState<'agents' | 'keys' | 'config'>('agents');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [accessKeys, setAccessKeys] = useState<AccessKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +115,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
             </button>
             <div>
               <h1 className="text-3xl font-bold text-white">Painel Administrativo</h1>
-              <p className="text-gray-400">Gerencie agentes e chaves de acesso</p>
+              <p className="text-gray-400">Gerencie agentes de IA, chaves de acesso e configurações</p>
             </div>
           </div>
         </div>
@@ -130,7 +131,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
             }`}
           >
             <Bot className="w-4 h-4" />
-            <span>Agentes</span>
+            <span>Agentes de IA</span>
           </button>
           <button
             onClick={() => setActiveTab('keys')}
@@ -142,6 +143,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
           >
             <Key className="w-4 h-4" />
             <span>Chaves de Acesso</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('config')}
+            className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-all ${
+              activeTab === 'config'
+                ? 'bg-purple-600 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+            }`}
+          >
+            <Cog className="w-4 h-4" />
+            <span>Configurações</span>
           </button>
         </div>
 
@@ -159,7 +171,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
                   <div className="flex items-center space-x-3">
                     <Bot className="w-6 h-6 text-purple-400" />
                     <h2 className="text-xl font-semibold text-white">
-                      Agentes ({agents.length})
+                      Agentes de IA ({agents.length})
                     </h2>
                   </div>
                   <button
@@ -167,7 +179,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
                     className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-all"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>Novo Agente</span>
+                    <span>Criar Agente</span>
                   </button>
                 </div>
 
@@ -186,11 +198,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <div className="flex items-center space-x-3 mb-2">
-                              <div className="w-10 h-10 bg-purple-600/30 rounded-lg flex items-center justify-center">
-                                <span className="text-sm font-medium text-purple-300">
-                                  {agent.name.charAt(0).toUpperCase()}
-                                </span>
+                            <div className="flex items-center space-x-3 mb-3">
+                              <div className="w-12 h-12 bg-purple-600/30 rounded-lg flex items-center justify-center">
+                                {agent.avatar ? (
+                                  <img 
+                                    src={agent.avatar} 
+                                    alt={agent.name}
+                                    className="w-full h-full rounded-lg object-cover"
+                                  />
+                                ) : (
+                                  <span className="text-lg font-medium text-purple-300">
+                                    {agent.name.charAt(0).toUpperCase()}
+                                  </span>
+                                )}
                               </div>
                               <div>
                                 <h3 className="text-lg font-semibold text-white">
@@ -199,14 +219,79 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
                                 <p className="text-sm text-gray-400">
                                   {agent.description}
                                 </p>
+                                {agent.assistant_id && (
+                                  <p className="text-xs text-purple-400 font-mono">
+                                    Assistant ID: {agent.assistant_id}
+                                  </p>
+                                )}
                               </div>
                             </div>
-                            {agent.webhook_url && (
-                              <div className="mt-3">
-                                <p className="text-xs text-gray-500 mb-1">Webhook URL:</p>
-                                <p className="text-sm text-purple-400 font-mono bg-gray-900/50 px-3 py-2 rounded-lg break-all">
-                                  {agent.webhook_url}
+                            
+                            {/* Agent Configuration */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                              <div className="bg-gray-700/30 rounded-lg p-3">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <Sparkles className="w-4 h-4 text-blue-400" />
+                                  <span className="text-xs font-medium text-blue-400">MODELO</span>
+                                </div>
+                                <p className="text-sm text-white font-mono">
+                                  {agent.model || 'gpt-4o-mini'}
                                 </p>
+                              </div>
+                              
+                              <div className="bg-gray-700/30 rounded-lg p-3">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <Settings className="w-4 h-4 text-green-400" />
+                                  <span className="text-xs font-medium text-green-400">CRIATIVIDADE</span>
+                                </div>
+                                <p className="text-sm text-white">
+                                  {agent.temperature || 0.7}
+                                </p>
+                              </div>
+                              
+                              <div className="bg-gray-700/30 rounded-lg p-3">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <MessageSquare className="w-4 h-4 text-purple-400" />
+                                  <span className="text-xs font-medium text-purple-400">MAX TOKENS</span>
+                                </div>
+                                <p className="text-sm text-white">
+                                  {agent.max_tokens || 1000}
+                                </p>
+                              </div>
+
+                              <div className="bg-gray-700/30 rounded-lg p-3">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <MessageSquare className="w-4 h-4 text-orange-400" />
+                                  <span className="text-xs font-medium text-orange-400">THREAD EXPIRY</span>
+                                </div>
+                                <p className="text-sm text-white">
+                                  {agent.thread_expiry_hours || 24}h
+                                </p>
+                              </div>
+                            </div>
+
+                            {agent.instructions && (
+                              <div className="mt-4">
+                                <p className="text-xs text-gray-500 mb-2">Instruções:</p>
+                                <p className="text-sm text-gray-300 bg-gray-900/50 px-3 py-2 rounded-lg line-clamp-3">
+                                  {agent.instructions}
+                                </p>
+                              </div>
+                            )}
+
+                            {agent.custom_fields && agent.custom_fields.length > 0 && (
+                              <div className="mt-4">
+                                <p className="text-xs text-gray-500 mb-2">Campos Customizados:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {agent.custom_fields.map((field, index) => (
+                                    <span
+                                      key={index}
+                                      className="px-2 py-1 bg-purple-600/20 text-purple-300 text-xs rounded-full"
+                                    >
+                                      {field.name} ({field.type})
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -237,6 +322,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
                 accessKeys={accessKeys}
                 onUpdate={handleAccessKeysUpdate}
               />
+            )}
+
+            {activeTab === 'config' && (
+              <SystemConfigManager onUpdate={loadData} />
             )}
           </>
         )}
