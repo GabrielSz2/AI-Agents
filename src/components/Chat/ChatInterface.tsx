@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { Send, Loader2, AlertCircle } from 'lucide-react';
 import { Agent, Message } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagesAPI, agentsAPI } from '../../utils/supabase';
@@ -20,6 +20,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -44,6 +45,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
 
   const loadAgents = async () => {
     setIsLoadingAgents(true);
+    setError(null);
     try {
       const { agents: loadedAgents, error } = await agentsAPI.getAllAgents();
       if (!error) {
@@ -51,9 +53,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
         if (loadedAgents.length > 0 && !selectedAgent) {
           setSelectedAgent(loadedAgents[0]);
         }
+      } else {
+        setError('Erro ao carregar agentes. Tente recarregar a página.');
       }
     } catch (error) {
       console.error('Erro ao carregar agentes:', error);
+      setError('Erro de conexão. Verifique sua internet.');
     } finally {
       setIsLoadingAgents(false);
     }
@@ -61,13 +66,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
 
   const loadMessages = async (userEmail: string, agentId: number) => {
     setIsLoadingMessages(true);
+    setError(null);
     try {
       const { messages: loadedMessages, error } = await messagesAPI.getMessages(userEmail, agentId);
       if (!error) {
         setMessages(loadedMessages);
+      } else {
+        setError('Erro ao carregar histórico de mensagens.');
       }
     } catch (error) {
       console.error('Erro ao carregar mensagens:', error);
+      setError('Erro ao carregar mensagens.');
     } finally {
       setIsLoadingMessages(false);
     }
@@ -87,9 +96,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
     const messageContent = inputMessage.trim();
     setInputMessage('');
     setIsSending(true);
+    setError(null);
 
     try {
-      // Adiciona mensagem do usuário
+      // Adiciona mensagem do usuário imediatamente
       const userMessage: Message = {
         user_email: user.email,
         agent_id: selectedAgent.id,
@@ -98,53 +108,62 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
         timestamp: new Date().toISOString()
       };
 
-      // Salva mensagem do usuário no Supabase
-      const { message: savedUserMessage, error } = await messagesAPI.sendMessage(
+      setMessages(prev => [...prev, userMessage]);
+
+      // Salva mensagem do usuário no banco
+      const { message: savedUserMessage, error: userError } = await messagesAPI.sendMessage(
         user.email,
         selectedAgent.id,
         messageContent,
         true
       );
 
-      if (!error && savedUserMessage) {
-        setMessages(prev => [...prev, savedUserMessage]);
-      } else {
-        // Se falhar, adiciona localmente
-        setMessages(prev => [...prev, userMessage]);
+      if (userError) {
+        console.warn('Erro ao salvar mensagem do usuário:', userError);
       }
 
       // Mostra indicador de digitação
       setIsTyping(true);
 
-      // Busca resposta do agente via webhook
-      const agentResponse = await messagesAPI.getAgentResponse(selectedAgent.id, messageContent);
+      // Busca resposta do agente
+      const agentResponse = await messagesAPI.getAgentResponse(
+        selectedAgent.id, 
+        messageContent, 
+        user.email
+      );
       
-      // Salva resposta do agente
-      const { message: savedAgentMessage, error: agentError } = await messagesAPI.sendMessage(
+      setIsTyping(false);
+
+      // Adiciona resposta do agente
+      const agentMessage: Message = {
+        user_email: user.email,
+        agent_id: selectedAgent.id,
+        content: agentResponse,
+        is_from_user: false,
+        timestamp: new Date().toISOString()
+      };
+
+      setMessages(prev => [...prev, agentMessage]);
+
+      // Salva resposta do agente no banco
+      const { error: agentError } = await messagesAPI.sendMessage(
         user.email,
         selectedAgent.id,
         agentResponse,
         false
       );
 
-      setIsTyping(false);
-
-      if (!agentError && savedAgentMessage) {
-        setMessages(prev => [...prev, savedAgentMessage]);
-      } else {
-        // Se falhar, adiciona localmente
-        const agentMessage: Message = {
-          user_email: user.email,
-          agent_id: selectedAgent.id,
-          content: agentResponse,
-          is_from_user: false,
-          timestamp: new Date().toISOString()
-        };
-        setMessages(prev => [...prev, agentMessage]);
+      if (agentError) {
+        console.warn('Erro ao salvar resposta do agente:', agentError);
       }
+
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
       setIsTyping(false);
+      setError('Erro ao enviar mensagem. Tente novamente.');
+      
+      // Remove a mensagem do usuário se houve erro
+      setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsSending(false);
     }
@@ -153,6 +172,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const handleSelectAgent = (agent: Agent) => {
     setSelectedAgent(agent);
     setMessages([]);
+    setError(null);
+  };
+
+  const dismissError = () => {
+    setError(null);
   };
 
   return (
@@ -168,6 +192,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
+        {/* Error Banner */}
+        {error && (
+          <div className="bg-red-500/10 border-b border-red-500/20 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-400" />
+                <p className="text-red-400 text-sm">{error}</p>
+              </div>
+              <button
+                onClick={dismissError}
+                className="text-red-400 hover:text-red-300 text-sm"
+              >
+                Dispensar
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedAgent ? (
           <>
             {/* Chat Header */}
@@ -193,6 +235,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
                   <p className="text-sm text-gray-400">
                     {selectedAgent.description}
                   </p>
+                  {selectedAgent.assistant_id && (
+                    <p className="text-xs text-purple-400 mt-1">
+                      🤖 Powered by OpenAI Assistant
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -252,11 +299,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
                   onChange={(e) => setInputMessage(e.target.value)}
                   placeholder={`Enviar mensagem para ${selectedAgent.name}...`}
                   className="flex-1 bg-gray-700/50 border border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  disabled={isSending}
+                  disabled={isSending || isTyping}
                 />
                 <button
                   type="submit"
-                  disabled={!inputMessage.trim() || isSending}
+                  disabled={!inputMessage.trim() || isSending || isTyping}
                   className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-all flex items-center justify-center"
                 >
                   {isSending ? (
@@ -266,6 +313,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
                   )}
                 </button>
               </form>
+              
+              {selectedAgent.assistant_id && (
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  Conversas são mantidas por {selectedAgent.thread_expiry_hours || 24} horas
+                </p>
+              )}
             </div>
           </>
         ) : (

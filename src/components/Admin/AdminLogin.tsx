@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Shield, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { authAPI } from '../../utils/supabase';
 
 interface AdminLoginProps {
-  onLogin: () => void;
+  onLogin: (user: any) => void;
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -15,24 +16,30 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!username.trim() || !password.trim()) {
-      setError('Usuário e senha são obrigatórios.');
+    if (!email.trim() || !password.trim()) {
+      setError('Email e senha são obrigatórios.');
       return;
     }
 
     setError('');
     setLoading(true);
 
-    // Simula delay de autenticação
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (username === 'Admin_09' && password === 'Adminop.23') {
-      onLogin();
-    } else {
-      setError('Credenciais inválidas. Tente novamente.');
+    try {
+      const { user, error: loginError } = await authAPI.loginUser(email, password);
+      
+      if (loginError || !user) {
+        setError('Credenciais inválidas. Verifique email e senha.');
+      } else if (!user.is_admin) {
+        setError('Acesso negado. Apenas administradores podem acessar.');
+      } else {
+        onLogin(user);
+      }
+    } catch (error) {
+      console.error('Erro no login admin:', error);
+      setError('Erro interno. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -50,18 +57,18 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
-              Usuário
+            <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+              Email
             </label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
-                type="text"
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                placeholder="Digite seu usuário"
+                placeholder="admin@exemplo.com"
                 required
               />
             </div>

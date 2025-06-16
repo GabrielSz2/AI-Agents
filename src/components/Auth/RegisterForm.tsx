@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Lock, UserPlus, ArrowRight, Key } from 'lucide-react';
+import { Mail, Lock, UserPlus, ArrowRight, Key, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface RegisterFormProps {
@@ -13,8 +13,47 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
   const [accessKey, setAccessKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailExists, setEmailExists] = useState<boolean | null>(null);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   
   const { register } = useAuth();
+
+  // Verifica se o email já existe quando o usuário para de digitar
+  const checkEmailExists = async (emailToCheck: string) => {
+    if (!emailToCheck || !emailToCheck.includes('@')) {
+      setEmailExists(null);
+      return;
+    }
+
+    setCheckingEmail(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${emailToCheck}`, {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const users = await response.json();
+      setEmailExists(users && users.length > 0);
+    } catch (error) {
+      console.error('Erro ao verificar email:', error);
+      setEmailExists(null);
+    } finally {
+      setCheckingEmail(false);
+    }
+  };
+
+  // Debounce para verificação de email
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (email) {
+        checkEmailExists(email);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +61,11 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
     // Validações básicas
     if (!email.trim() || !password.trim() || !confirmPassword.trim() || !accessKey.trim()) {
       setError('Todos os campos são obrigatórios.');
+      return;
+    }
+
+    if (emailExists) {
+      setError('Este email já está em uso. Tente fazer login.');
       return;
     }
 
@@ -35,13 +79,20 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
       return;
     }
 
+    // Validação de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Por favor, digite um email válido.');
+      return;
+    }
+
     setError('');
     setLoading(true);
 
     try {
       const success = await register(email, password, accessKey);
       if (!success) {
-        setError('Erro ao criar conta. Verifique se o e-mail não está em uso e se a chave de acesso é válida.');
+        setError('Erro ao criar conta. Verifique se a chave de acesso é válida.');
       }
     } catch (err) {
       setError('Erro interno. Tente novamente.');
@@ -96,11 +147,36 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
                 id="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                className={`w-full pl-10 pr-12 py-3 bg-gray-700/50 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                  emailExists === true 
+                    ? 'border-red-500 focus:ring-red-500' 
+                    : emailExists === false 
+                    ? 'border-green-500 focus:ring-green-500'
+                    : 'border-gray-600 focus:ring-purple-500'
+                }`}
                 placeholder="seu@email.com"
                 required
               />
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                {checkingEmail ? (
+                  <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                ) : emailExists === true ? (
+                  <div className="w-5 h-5 text-red-400">❌</div>
+                ) : emailExists === false ? (
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                ) : null}
+              </div>
             </div>
+            {emailExists === true && (
+              <p className="text-xs text-red-400 mt-1">
+                Este email já está em uso
+              </p>
+            )}
+            {emailExists === false && (
+              <p className="text-xs text-green-400 mt-1">
+                Email disponível
+              </p>
+            )}
           </div>
 
           <div>
@@ -147,7 +223,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || emailExists === true || checkingEmail}
             className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white font-medium py-3 px-4 rounded-xl transition-all flex items-center justify-center space-x-2 group"
           >
             {loading ? (
@@ -170,6 +246,12 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
             >
               Faça login
             </button>
+          </p>
+        </div>
+
+        <div className="mt-4 text-center">
+          <p className="text-xs text-gray-500">
+            📧 Você receberá um email de boas-vindas após o cadastro
           </p>
         </div>
       </div>

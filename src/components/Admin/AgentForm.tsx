@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Save, X, Bot, MessageSquare, Settings, Sparkles, Plus, Trash2, Clock } from 'lucide-react';
+import { Save, X, Bot, MessageSquare, Settings, Sparkles, Plus, Trash2, Clock, Key } from 'lucide-react';
 import { Agent, CustomField, OpenAIModels } from '../../types';
 import { agentsAPI } from '../../utils/supabase';
-import { openaiAPI } from '../../utils/openai';
 
 interface AgentFormProps {
   agent?: Agent | null;
@@ -48,6 +47,7 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
   const [description, setDescription] = useState(agent?.description || '');
   const [instructions, setInstructions] = useState(agent?.instructions || '');
   const [avatar, setAvatar] = useState(agent?.avatar || '');
+  const [assistantId, setAssistantId] = useState(agent?.assistant_id || '');
   const [model, setModel] = useState(agent?.model || 'gpt-4o-mini');
   const [temperature, setTemperature] = useState(agent?.temperature || 0.7);
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 1000);
@@ -55,7 +55,6 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
   const [customFields, setCustomFields] = useState<CustomField[]>(agent?.custom_fields || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [createAssistant, setCreateAssistant] = useState(!agent?.assistant_id);
 
   const handleAddCustomField = () => {
     const newField: CustomField = {
@@ -90,42 +89,6 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
     setLoading(true);
 
     try {
-      let assistantId = agent?.assistant_id;
-
-      // Criar ou atualizar Assistant na OpenAI se solicitado
-      if (createAssistant) {
-        if (agent?.assistant_id) {
-          // Atualizar assistant existente
-          const { assistant, error: openaiError } = await openaiAPI.updateAssistant(
-            agent.assistant_id,
-            name.trim(),
-            instructions.trim(),
-            model
-          );
-          
-          if (openaiError) {
-            console.warn('Erro ao atualizar assistant na OpenAI:', openaiError);
-            // Continua mesmo com erro na OpenAI
-          } else if (assistant) {
-            assistantId = assistant.id;
-          }
-        } else {
-          // Criar novo assistant
-          const { assistant, error: openaiError } = await openaiAPI.createAssistant(
-            name.trim(),
-            instructions.trim(),
-            model
-          );
-          
-          if (openaiError) {
-            console.warn('Erro ao criar assistant na OpenAI:', openaiError);
-            // Continua mesmo com erro na OpenAI
-          } else if (assistant) {
-            assistantId = assistant.id;
-          }
-        }
-      }
-
       // Salvar no banco de dados
       let result;
       
@@ -140,7 +103,7 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
           model,
           temperature,
           maxTokens,
-          assistantId,
+          assistantId.trim() || undefined,
           threadExpiryHours,
           customFields
         );
@@ -154,7 +117,7 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
           model,
           temperature,
           maxTokens,
-          assistantId,
+          assistantId.trim() || undefined,
           threadExpiryHours,
           customFields
         );
@@ -250,6 +213,31 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
                 placeholder="Ex: Especialista em vendas e atendimento ao cliente"
                 required
               />
+            </div>
+          </div>
+
+          {/* OpenAI Assistant Configuration */}
+          <div className="bg-gray-700/20 rounded-xl p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <Key className="w-5 h-5 text-purple-400" />
+              <h3 className="text-lg font-semibold text-white">Configuração OpenAI Assistant</h3>
+            </div>
+            
+            <div>
+              <label htmlFor="assistantId" className="block text-sm font-medium text-gray-300 mb-2">
+                Assistant ID (opcional)
+              </label>
+              <input
+                type="text"
+                id="assistantId"
+                value={assistantId}
+                onChange={(e) => setAssistantId(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all font-mono"
+                placeholder="asst_kre1SDANQ5pxqKYli7QKmbpV"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Se preenchido, o agente usará o OpenAI Assistant especificado. Caso contrário, usará respostas simuladas.
+              </p>
             </div>
           </div>
 
@@ -458,36 +446,6 @@ export const AgentForm: React.FC<AgentFormProps> = ({ agent, onSave, onCancel })
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* OpenAI Assistant */}
-          <div className="bg-gray-700/20 rounded-xl p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <Bot className="w-5 h-5 text-purple-400" />
-              <h3 className="text-lg font-semibold text-white">OpenAI Assistant</h3>
-            </div>
-            
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="createAssistant"
-                checked={createAssistant}
-                onChange={(e) => setCreateAssistant(e.target.checked)}
-                className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
-              />
-              <label htmlFor="createAssistant" className="text-sm text-gray-300">
-                {agent?.assistant_id 
-                  ? 'Atualizar Assistant na OpenAI com as configurações atuais'
-                  : 'Criar Assistant na OpenAI automaticamente'
-                }
-              </label>
-            </div>
-            
-            {agent?.assistant_id && (
-              <p className="text-xs text-gray-500 mt-2">
-                Assistant ID atual: <span className="font-mono text-purple-400">{agent.assistant_id}</span>
-              </p>
             )}
           </div>
 

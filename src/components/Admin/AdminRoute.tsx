@@ -4,25 +4,36 @@ import { AdminPanel } from './AdminPanel';
 
 export const AdminRoute: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminUser, setAdminUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // Verifica se já está autenticado no localStorage
-    const adminAuth = localStorage.getItem('adminAuthenticated');
-    if (adminAuth === 'true') {
-      setIsAuthenticated(true);
+    const adminAuth = localStorage.getItem('adminUser');
+    if (adminAuth) {
+      try {
+        const user = JSON.parse(adminAuth);
+        if (user.is_admin) {
+          setAdminUser(user);
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        localStorage.removeItem('adminUser');
+      }
     }
     setIsLoading(false);
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = (user: any) => {
+    setAdminUser(user);
     setIsAuthenticated(true);
-    localStorage.setItem('adminAuthenticated', 'true');
+    localStorage.setItem('adminUser', JSON.stringify(user));
   };
 
   const handleLogout = () => {
+    setAdminUser(null);
     setIsAuthenticated(false);
-    localStorage.removeItem('adminAuthenticated');
+    localStorage.removeItem('adminUser');
     // Redireciona para a página inicial
     window.location.href = '/';
   };

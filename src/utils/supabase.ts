@@ -50,11 +50,33 @@ export const authAPI = {
   },
 
   async registerUser(email: string, password: string, accessKey: string) {
+    // Verifica se o email já existe
+    const { user: existingUser } = await this.checkUserExists(email);
+    if (existingUser) {
+      return { user: null, error: { message: 'Email já está em uso' } };
+    }
+
+    // Verifica se o email é válido (formato básico)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { user: null, error: { message: 'Email inválido' } };
+    }
+
     const { data, error } = await supabase
       .from('users')
       .insert([{ email, password, access_key_used: accessKey }])
       .select()
       .single();
+    
+    // Enviar email de agradecimento (simulado)
+    if (data && !error) {
+      try {
+        await this.sendWelcomeEmail(email);
+      } catch (emailError) {
+        console.warn('Erro ao enviar email de boas-vindas:', emailError);
+        // Não falha o registro por causa do email
+      }
+    }
     
     return { user: data, error };
   },
@@ -68,6 +90,28 @@ export const authAPI = {
       .single();
     
     return { user: data, error };
+  },
+
+  async sendWelcomeEmail(email: string) {
+    // Simulação de envio de email
+    // Em produção, integrar com serviço como SendGrid, Resend, etc.
+    console.log(`📧 Email de boas-vindas enviado para: ${email}`);
+    
+    // Exemplo de integração com serviço de email:
+    /*
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: email,
+        subject: 'Bem-vindo ao ChatBot!',
+        template: 'welcome',
+        data: { email }
+      })
+    });
+    */
+    
+    return { success: true };
   }
 };
 
@@ -272,6 +316,69 @@ export const messagesAPI = {
       .single();
     
     return { message: data, error };
+  },
+
+  async getAgentResponse(agentId: number, userMessage: string, userEmail: string) {
+    try {
+      // Busca o agente no banco
+      const { data: agent, error: agentError } = await supabase
+        .from('agentes')
+        .select('*')
+        .eq('id', agentId)
+        .single();
+
+      if (agentError || !agent) {
+        throw new Error('Agente não encontrado');
+      }
+
+      // Se não tem assistant_id, usa resposta simulada
+      if (!agent.assistant_id) {
+        return this.getSimulatedResponse(agent.name, userMessage);
+      }
+
+      // Chama a edge function para processar com OpenAI
+      const response = await fetch(`${supabaseUrl}/functions/v1/chat-assistant`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_email: userEmail,
+          agent_id: agentId,
+          message: userMessage,
+          assistant_id: agent.assistant_id
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Erro na edge function:', errorText);
+        throw new Error(`Erro na API: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      return result.resposta || 'Desculpe, não consegui processar sua mensagem.';
+    } catch (error) {
+      console.error('Erro ao obter resposta do agente:', error);
+      return 'Desculpe, estou com dificuldades técnicas no momento. Tente novamente em alguns instantes.';
+    }
+  },
+
+  getSimulatedResponse(agentName: string, userMessage: string) {
+    const responses = [
+      `Olá! Sou ${agentName}. Recebi sua mensagem: "${userMessage}". Como posso ajudá-lo?`,
+      `Entendi sua solicitação sobre "${userMessage}". Vou analisar e retornar com uma resposta detalhada.`,
+      `Obrigado por entrar em contato! Sobre "${userMessage}", posso fornecer algumas informações úteis.`,
+      `Interessante pergunta sobre "${userMessage}". Deixe-me explicar melhor esse assunto.`
+    ];
+    
+    return responses[Math.floor(Math.random() * responses.length)];
   }
 };
 
