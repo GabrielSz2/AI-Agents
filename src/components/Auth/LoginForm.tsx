@@ -23,22 +23,28 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
     setLoading(true);
 
     try {
-      // Verifica se o e-mail existe
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${email}`, {
+      // Verifica se o e-mail existe - usando select sem single() para evitar erro 406
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}&select=id,email`, {
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       });
 
+      if (!response.ok) {
+        throw new Error('Erro ao verificar e-mail');
+      }
+
       const users = await response.json();
 
-      if (!users || users.length === 0) {
+      if (!Array.isArray(users) || users.length === 0) {
         setError('E-mail incorreto. Verifique e tente novamente.');
       } else {
         setStep('password');
       }
     } catch (err) {
+      console.error('Erro ao verificar e-mail:', err);
       setError('Erro ao verificar e-mail. Tente novamente.');
     }
 

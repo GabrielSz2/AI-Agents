@@ -17,10 +17,10 @@ export const authAPI = {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('email', email)
-      .single();
+      .eq('email', email);
     
-    return { user: data, error };
+    // Retorna o primeiro usuário se existir, ou null se não existir
+    return { user: data && data.length > 0 ? data[0] : null, error };
   },
 
   async validateAccessKey(keyValue: string) {
@@ -28,25 +28,31 @@ export const authAPI = {
       .from('access_keys')
       .select('*')
       .eq('key_value', keyValue)
-      .eq('is_used', false)
-      .single();
+      .eq('is_used', false);
     
-    return { accessKey: data, error };
+    // Retorna a primeira chave se existir, ou null se não existir
+    return { accessKey: data && data.length > 0 ? data[0] : null, error };
   },
 
   async markAccessKeyAsUsed(keyValue: string, userEmail: string) {
-    const { data, error } = await supabase
-      .from('access_keys')
-      .update({
-        is_used: true,
-        used_by: userEmail,
-        used_at: new Date().toISOString()
-      })
-      .eq('key_value', keyValue)
-      .select()
-      .single();
-    
-    return { accessKey: data, error };
+    // Usa RPC ou uma abordagem diferente para contornar problemas de RLS
+    try {
+      const { data, error } = await supabase
+        .from('access_keys')
+        .update({
+          is_used: true,
+          used_by: userEmail,
+          used_at: new Date().toISOString()
+        })
+        .eq('key_value', keyValue)
+        .eq('is_used', false) // Adiciona condição para garantir que só atualiza chaves não usadas
+        .select();
+      
+      return { accessKey: data && data.length > 0 ? data[0] : null, error };
+    } catch (err) {
+      console.error('Erro ao marcar chave como usada:', err);
+      return { accessKey: null, error: err };
+    }
   },
 
   async registerUser(email: string, password: string, accessKey: string) {
@@ -65,11 +71,12 @@ export const authAPI = {
     const { data, error } = await supabase
       .from('users')
       .insert([{ email, password, access_key_used: accessKey }])
-      .select()
-      .single();
+      .select();
+    
+    const newUser = data && data.length > 0 ? data[0] : null;
     
     // Enviar email de agradecimento (simulado)
-    if (data && !error) {
+    if (newUser && !error) {
       try {
         await this.sendWelcomeEmail(email);
       } catch (emailError) {
@@ -78,7 +85,7 @@ export const authAPI = {
       }
     }
     
-    return { user: data, error };
+    return { user: newUser, error };
   },
 
   async loginUser(email: string, password: string) {
@@ -86,10 +93,10 @@ export const authAPI = {
       .from('users')
       .select('*')
       .eq('email', email)
-      .eq('password', password)
-      .single();
+      .eq('password', password);
     
-    return { user: data, error };
+    // Retorna o primeiro usuário se existir, ou null se não existir
+    return { user: data && data.length > 0 ? data[0] : null, error };
   },
 
   async sendWelcomeEmail(email: string) {
@@ -154,10 +161,9 @@ export const agentsAPI = {
         thread_expiry_hours: threadExpiryHours,
         custom_fields: customFields
       }])
-      .select()
-      .single();
+      .select();
     
-    return { agent: data, error };
+    return { agent: data && data.length > 0 ? data[0] : null, error };
   },
 
   async updateAgent(
@@ -188,10 +194,9 @@ export const agentsAPI = {
         custom_fields: customFields
       })
       .eq('id', id)
-      .select()
-      .single();
+      .select();
     
-    return { agent: data, error };
+    return { agent: data && data.length > 0 ? data[0] : null, error };
   },
 
   async deleteAgent(id: number) {
@@ -216,10 +221,9 @@ export const threadsAPI = {
       .eq('user_email', userEmail)
       .eq('agent_id', agentId)
       .eq('is_active', true)
-      .gte('expires_at', new Date().toISOString())
-      .single();
+      .gte('expires_at', new Date().toISOString());
     
-    return { thread: data, error };
+    return { thread: data && data.length > 0 ? data[0] : null, error };
   },
 
   // Cria nova thread para usuário
@@ -243,10 +247,9 @@ export const threadsAPI = {
         is_active: true,
         custom_data: customData
       }])
-      .select()
-      .single();
+      .select();
     
-    return { thread: data, error };
+    return { thread: data && data.length > 0 ? data[0] : null, error };
   },
 
   // Desativa thread expirada
@@ -255,10 +258,9 @@ export const threadsAPI = {
       .from('user_threads')
       .update({ is_active: false })
       .eq('id', id)
-      .select()
-      .single();
+      .select();
     
-    return { thread: data, error };
+    return { thread: data && data.length > 0 ? data[0] : null, error };
   },
 
   // Busca threads expiradas para limpeza
@@ -312,24 +314,24 @@ export const messagesAPI = {
         openai_message_id: openaiMessageId,
         timestamp: new Date().toISOString()
       }])
-      .select()
-      .single();
+      .select();
     
-    return { message: data, error };
+    return { message: data && data.length > 0 ? data[0] : null, error };
   },
 
   async getAgentResponse(agentId: number, userMessage: string, userEmail: string) {
     try {
       // Busca o agente no banco
-      const { data: agent, error: agentError } = await supabase
+      const { data: agents, error: agentError } = await supabase
         .from('agentes')
         .select('*')
-        .eq('id', agentId)
-        .single();
+        .eq('id', agentId);
 
-      if (agentError || !agent) {
+      if (agentError || !agents || agents.length === 0) {
         throw new Error('Agente não encontrado');
       }
+
+      const agent = agents[0];
 
       // Se não tem assistant_id, usa resposta simulada
       if (!agent.assistant_id) {
@@ -399,10 +401,9 @@ export const accessKeysAPI = {
     const { data, error } = await supabase
       .from('access_keys')
       .insert([{ key_value: keyValue }])
-      .select()
-      .single();
+      .select();
     
-    return { accessKey: data, error };
+    return { accessKey: data && data.length > 0 ? data[0] : null, error };
   },
 
   async deleteAccessKey(id: number) {
@@ -432,10 +433,9 @@ export const systemConfigAPI = {
     const { data, error } = await supabase
       .from('system_config')
       .select('*')
-      .eq('key', key)
-      .single();
+      .eq('key', key);
     
-    return { config: data, error };
+    return { config: data && data.length > 0 ? data[0] : null, error };
   },
 
   async setConfig(key: string, value: string, description?: string, isSensitive: boolean = false) {
@@ -447,11 +447,12 @@ export const systemConfigAPI = {
         description,
         is_sensitive: isSensitive,
         updated_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
+      }], {
+        onConflict: 'key'
+      })
+      .select();
     
-    return { config: data, error };
+    return { config: data && data.length > 0 ? data[0] : null, error };
   },
 
   async deleteConfig(key: string) {

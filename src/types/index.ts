@@ -103,6 +103,12 @@ export interface OpenAIModels {
     release_date: '2024-07-18';
     context_window: 128000;
   };
+  'gpt-4o-mini-2024-07-18': {
+    name: 'GPT-4o Mini (2024-07-18)';
+    description: 'Versão específica otimizada';
+    release_date: '2024-07-18';
+    context_window: 128000;
+  };
   'gpt-4-turbo': {
     name: 'GPT-4 Turbo';
     description: 'Rápido e eficiente';
