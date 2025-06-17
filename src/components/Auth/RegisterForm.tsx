@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, Lock, UserPlus, ArrowRight, Key, CheckCircle } from 'lucide-react';
+import { Mail, Lock, UserPlus, ArrowRight, Key, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { sanitizeInput, isValidEmail, isStrongPassword } from '../../utils/auth';
 
 interface RegisterFormProps {
   onSwitchToLogin: () => void;
@@ -15,12 +16,13 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
   const [loading, setLoading] = useState(false);
   const [emailExists, setEmailExists] = useState<boolean | null>(null);
   const [checkingEmail, setCheckingEmail] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState<{ valid: boolean; message?: string }>({ valid: false });
   
   const { register } = useAuth();
 
   // Verifica se o email já existe quando o usuário para de digitar
   const checkEmailExists = async (emailToCheck: string) => {
-    if (!emailToCheck || !emailToCheck.includes('@')) {
+    if (!emailToCheck || !isValidEmail(emailToCheck)) {
       setEmailExists(null);
       return;
     }
@@ -48,19 +50,37 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
   React.useEffect(() => {
     const timer = setTimeout(() => {
       if (email) {
-        checkEmailExists(email);
+        checkEmailExists(sanitizeInput(email));
       }
     }, 500);
 
     return () => clearTimeout(timer);
   }, [email]);
 
+  // Verifica força da senha
+  React.useEffect(() => {
+    if (password) {
+      setPasswordStrength(isStrongPassword(password));
+    } else {
+      setPasswordStrength({ valid: false });
+    }
+  }, [password]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Sanitiza entradas
+    const sanitizedEmail = sanitizeInput(email);
+    const sanitizedAccessKey = sanitizeInput(accessKey);
+    
     // Validações básicas
-    if (!email.trim() || !password.trim() || !confirmPassword.trim() || !accessKey.trim()) {
+    if (!sanitizedEmail || !password.trim() || !confirmPassword.trim() || !sanitizedAccessKey) {
       setError('Todos os campos são obrigatórios.');
+      return;
+    }
+
+    if (!isValidEmail(sanitizedEmail)) {
+      setError('Por favor, digite um email válido.');
       return;
     }
 
@@ -69,20 +89,13 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
       return;
     }
 
+    if (!passwordStrength.valid) {
+      setError(passwordStrength.message || 'Senha não atende aos critérios de segurança.');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('As senhas não coincidem.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.');
-      return;
-    }
-
-    // Validação de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setError('Por favor, digite um email válido.');
       return;
     }
 
@@ -90,15 +103,16 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
     setLoading(true);
 
     try {
-      const success = await register(email, password, accessKey);
-      if (!success) {
-        setError('Erro ao criar conta. Verifique se a chave de acesso é válida.');
+      const result = await register(sanitizedEmail, password, sanitizedAccessKey);
+      if (!result.success) {
+        setError(result.error || 'Erro ao criar conta.');
       }
     } catch (err) {
+      console.error('Erro no registro:', err);
       setError('Erro interno. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -129,6 +143,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
                 className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                 placeholder="Digite sua chave de acesso"
                 required
+                maxLength={100}
               />
             </div>
             <p className="text-xs text-gray-500 mt-1">
@@ -156,6 +171,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
                 }`}
                 placeholder="seu@email.com"
                 required
+                maxLength={254}
               />
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 {checkingEmail ? (
@@ -190,11 +206,28 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                placeholder="Mínimo 6 caracteres"
+                className={`w-full pl-10 pr-4 py-3 bg-gray-700/50 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                  password && passwordStrength.valid 
+                    ? 'border-green-500 focus:ring-green-500'
+                    : password && !passwordStrength.valid
+                    ? 'border-red-500 focus:ring-red-500'
+                    : 'border-gray-600 focus:ring-purple-500'
+                }`}
+                placeholder="Mínimo 8 caracteres"
                 required
+                maxLength={128}
               />
             </div>
+            {password && !passwordStrength.valid && (
+              <p className="text-xs text-red-400 mt-1">
+                {passwordStrength.message}
+              </p>
+            )}
+            {password && passwordStrength.valid && (
+              <p className="text-xs text-green-400 mt-1">
+                Senha forte ✓
+              </p>
+            )}
           </div>
 
           <div>
@@ -208,22 +241,35 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
                 id="confirmPassword"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                className={`w-full pl-10 pr-4 py-3 bg-gray-700/50 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                  confirmPassword && password === confirmPassword
+                    ? 'border-green-500 focus:ring-green-500'
+                    : confirmPassword && password !== confirmPassword
+                    ? 'border-red-500 focus:ring-red-500'
+                    : 'border-gray-600 focus:ring-purple-500'
+                }`}
                 placeholder="Digite a senha novamente"
                 required
+                maxLength={128}
               />
             </div>
+            {confirmPassword && password !== confirmPassword && (
+              <p className="text-xs text-red-400 mt-1">
+                As senhas não coincidem
+              </p>
+            )}
           </div>
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start space-x-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
               <p className="text-red-400 text-sm">{error}</p>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={loading || emailExists === true || checkingEmail}
+            disabled={loading || emailExists === true || checkingEmail || !passwordStrength.valid}
             className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white font-medium py-3 px-4 rounded-xl transition-all flex items-center justify-center space-x-2 group"
           >
             {loading ? (

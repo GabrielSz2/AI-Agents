@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { User, Agent, Message, AccessKey, UserThread, SystemConfig, CustomField } from '../types';
+import { hashPassword, verifyPassword, sanitizeInput } from './auth';
 
 /**
  * Configuração do cliente Supabase
@@ -10,43 +11,58 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANO
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
- * Funções de autenticação customizada
+ * Funções de autenticação customizada com segurança aprimorada
  */
 export const authAPI = {
   async checkUserExists(email: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email);
-    
-    // Retorna o primeiro usuário se existir, ou null se não existir
-    return { user: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedEmail = sanitizeInput(email);
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, is_admin')
+        .eq('email', sanitizedEmail)
+        .limit(1);
+      
+      return { user: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao verificar usuário:', error);
+      return { user: null, error };
+    }
   },
 
   async validateAccessKey(keyValue: string) {
-    const { data, error } = await supabase
-      .from('access_keys')
-      .select('*')
-      .eq('key_value', keyValue)
-      .eq('is_used', false);
-    
-    // Retorna a primeira chave se existir, ou null se não existir
-    return { accessKey: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedKey = sanitizeInput(keyValue);
+      const { data, error } = await supabase
+        .from('access_keys')
+        .select('*')
+        .eq('key_value', sanitizedKey)
+        .eq('is_used', false)
+        .limit(1);
+      
+      return { accessKey: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao validar chave:', error);
+      return { accessKey: null, error };
+    }
   },
 
   async markAccessKeyAsUsed(keyValue: string, userEmail: string) {
-    // Usa RPC ou uma abordagem diferente para contornar problemas de RLS
     try {
+      const sanitizedKey = sanitizeInput(keyValue);
+      const sanitizedEmail = sanitizeInput(userEmail);
+      
       const { data, error } = await supabase
         .from('access_keys')
         .update({
           is_used: true,
-          used_by: userEmail,
+          used_by: sanitizedEmail,
           used_at: new Date().toISOString()
         })
-        .eq('key_value', keyValue)
-        .eq('is_used', false) // Adiciona condição para garantir que só atualiza chaves não usadas
-        .select();
+        .eq('key_value', sanitizedKey)
+        .eq('is_used', false)
+        .select()
+        .limit(1);
       
       return { accessKey: data && data.length > 0 ? data[0] : null, error };
     } catch (err) {
@@ -56,68 +72,90 @@ export const authAPI = {
   },
 
   async registerUser(email: string, password: string, accessKey: string) {
-    // Verifica se o email já existe
-    const { user: existingUser } = await this.checkUserExists(email);
-    if (existingUser) {
-      return { user: null, error: { message: 'Email já está em uso' } };
-    }
-
-    // Verifica se o email é válido (formato básico)
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return { user: null, error: { message: 'Email inválido' } };
-    }
-
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{ email, password, access_key_used: accessKey }])
-      .select();
-    
-    const newUser = data && data.length > 0 ? data[0] : null;
-    
-    // Enviar email de agradecimento (simulado)
-    if (newUser && !error) {
-      try {
-        await this.sendWelcomeEmail(email);
-      } catch (emailError) {
-        console.warn('Erro ao enviar email de boas-vindas:', emailError);
-        // Não falha o registro por causa do email
+    try {
+      // Sanitiza entradas
+      const sanitizedEmail = sanitizeInput(email);
+      const sanitizedKey = sanitizeInput(accessKey);
+      
+      // Verifica se o email já existe
+      const { user: existingUser } = await this.checkUserExists(sanitizedEmail);
+      if (existingUser) {
+        return { user: null, error: { message: 'Email já está em uso' } };
       }
+
+      // Valida formato de email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(sanitizedEmail)) {
+        return { user: null, error: { message: 'Email inválido' } };
+      }
+
+      // Gera hash da senha
+      const hashedPassword = await hashPassword(password);
+
+      const { data, error } = await supabase
+        .from('users')
+        .insert([{ 
+          email: sanitizedEmail, 
+          password: hashedPassword, 
+          access_key_used: sanitizedKey 
+        }])
+        .select('id, email, is_admin, created_at')
+        .limit(1);
+      
+      const newUser = data && data.length > 0 ? data[0] : null;
+      
+      // Enviar email de agradecimento (simulado)
+      if (newUser && !error) {
+        try {
+          await this.sendWelcomeEmail(sanitizedEmail);
+        } catch (emailError) {
+          console.warn('Erro ao enviar email de boas-vindas:', emailError);
+        }
+      }
+      
+      return { user: newUser, error };
+    } catch (error) {
+      console.error('Erro ao registrar usuário:', error);
+      return { user: null, error };
     }
-    
-    return { user: newUser, error };
   },
 
   async loginUser(email: string, password: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .eq('password', password);
-    
-    // Retorna o primeiro usuário se existir, ou null se não existir
-    return { user: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedEmail = sanitizeInput(email);
+      
+      // Busca usuário pelo email
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', sanitizedEmail)
+        .limit(1);
+      
+      if (error || !data || data.length === 0) {
+        return { user: null, error: { message: 'Usuário não encontrado' } };
+      }
+
+      const user = data[0];
+      
+      // Verifica senha
+      const isValidPassword = await verifyPassword(password, user.password);
+      if (!isValidPassword) {
+        return { user: null, error: { message: 'Senha incorreta' } };
+      }
+
+      // Remove senha do objeto retornado
+      const { password: _, ...userWithoutPassword } = user;
+      
+      return { user: userWithoutPassword, error: null };
+    } catch (error) {
+      console.error('Erro ao fazer login:', error);
+      return { user: null, error };
+    }
   },
 
   async sendWelcomeEmail(email: string) {
     // Simulação de envio de email
-    // Em produção, integrar com serviço como SendGrid, Resend, etc.
     console.log(`📧 Email de boas-vindas enviado para: ${email}`);
-    
-    // Exemplo de integração com serviço de email:
-    /*
-    const response = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: email,
-        subject: 'Bem-vindo ao ChatBot!',
-        template: 'welcome',
-        data: { email }
-      })
-    });
-    */
-    
     return { success: true };
   }
 };
@@ -127,12 +165,17 @@ export const authAPI = {
  */
 export const agentsAPI = {
   async getAllAgents() {
-    const { data, error } = await supabase
-      .from('agentes')
-      .select('*')
-      .order('created_at', { ascending: true });
-    
-    return { agents: data || [], error };
+    try {
+      const { data, error } = await supabase
+        .from('agentes')
+        .select('*')
+        .order('created_at', { ascending: true });
+      
+      return { agents: data || [], error };
+    } catch (error) {
+      console.error('Erro ao buscar agentes:', error);
+      return { agents: [], error };
+    }
   },
 
   async createAgent(
@@ -147,23 +190,29 @@ export const agentsAPI = {
     threadExpiryHours: number = 24,
     customFields: CustomField[] = []
   ) {
-    const { data, error } = await supabase
-      .from('agentes')
-      .insert([{
-        name,
-        description,
-        instructions,
-        avatar,
-        model,
-        temperature,
-        max_tokens: maxTokens,
-        assistant_id: assistantId,
-        thread_expiry_hours: threadExpiryHours,
-        custom_fields: customFields
-      }])
-      .select();
-    
-    return { agent: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const { data, error } = await supabase
+        .from('agentes')
+        .insert([{
+          name: sanitizeInput(name),
+          description: sanitizeInput(description),
+          instructions: sanitizeInput(instructions),
+          avatar: avatar ? sanitizeInput(avatar) : undefined,
+          model,
+          temperature,
+          max_tokens: maxTokens,
+          assistant_id: assistantId ? sanitizeInput(assistantId) : undefined,
+          thread_expiry_hours: threadExpiryHours,
+          custom_fields: customFields
+        }])
+        .select()
+        .limit(1);
+      
+      return { agent: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao criar agente:', error);
+      return { agent: null, error };
+    }
   },
 
   async updateAgent(
@@ -179,33 +228,44 @@ export const agentsAPI = {
     threadExpiryHours: number = 24,
     customFields: CustomField[] = []
   ) {
-    const { data, error } = await supabase
-      .from('agentes')
-      .update({
-        name,
-        description,
-        instructions,
-        avatar,
-        model,
-        temperature,
-        max_tokens: maxTokens,
-        assistant_id: assistantId,
-        thread_expiry_hours: threadExpiryHours,
-        custom_fields: customFields
-      })
-      .eq('id', id)
-      .select();
-    
-    return { agent: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const { data, error } = await supabase
+        .from('agentes')
+        .update({
+          name: sanitizeInput(name),
+          description: sanitizeInput(description),
+          instructions: sanitizeInput(instructions),
+          avatar: avatar ? sanitizeInput(avatar) : undefined,
+          model,
+          temperature,
+          max_tokens: maxTokens,
+          assistant_id: assistantId ? sanitizeInput(assistantId) : undefined,
+          thread_expiry_hours: threadExpiryHours,
+          custom_fields: customFields
+        })
+        .eq('id', id)
+        .select()
+        .limit(1);
+      
+      return { agent: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao atualizar agente:', error);
+      return { agent: null, error };
+    }
   },
 
   async deleteAgent(id: number) {
-    const { error } = await supabase
-      .from('agentes')
-      .delete()
-      .eq('id', id);
-    
-    return { error };
+    try {
+      const { error } = await supabase
+        .from('agentes')
+        .delete()
+        .eq('id', id);
+      
+      return { error };
+    } catch (error) {
+      console.error('Erro ao deletar agente:', error);
+      return { error };
+    }
   }
 };
 
@@ -213,20 +273,25 @@ export const agentsAPI = {
  * Funções para gerenciar threads de usuários
  */
 export const threadsAPI = {
-  // Busca thread ativa do usuário para um agente
   async getActiveThread(userEmail: string, agentId: number) {
-    const { data, error } = await supabase
-      .from('user_threads')
-      .select('*')
-      .eq('user_email', userEmail)
-      .eq('agent_id', agentId)
-      .eq('is_active', true)
-      .gte('expires_at', new Date().toISOString());
-    
-    return { thread: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedEmail = sanitizeInput(userEmail);
+      const { data, error } = await supabase
+        .from('user_threads')
+        .select('*')
+        .eq('user_email', sanitizedEmail)
+        .eq('agent_id', agentId)
+        .eq('is_active', true)
+        .gte('expires_at', new Date().toISOString())
+        .limit(1);
+      
+      return { thread: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao buscar thread ativa:', error);
+      return { thread: null, error };
+    }
   },
 
-  // Cria nova thread para usuário
   async createUserThread(
     userEmail: string, 
     agentId: number, 
@@ -234,44 +299,62 @@ export const threadsAPI = {
     expiryHours: number = 24,
     customData: Record<string, any> = {}
   ) {
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + expiryHours);
+    try {
+      const sanitizedEmail = sanitizeInput(userEmail);
+      const sanitizedThreadId = sanitizeInput(threadId);
+      
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + expiryHours);
 
-    const { data, error } = await supabase
-      .from('user_threads')
-      .insert([{
-        user_email: userEmail,
-        agent_id: agentId,
-        thread_id: threadId,
-        expires_at: expiresAt.toISOString(),
-        is_active: true,
-        custom_data: customData
-      }])
-      .select();
-    
-    return { thread: data && data.length > 0 ? data[0] : null, error };
+      const { data, error } = await supabase
+        .from('user_threads')
+        .insert([{
+          user_email: sanitizedEmail,
+          agent_id: agentId,
+          thread_id: sanitizedThreadId,
+          expires_at: expiresAt.toISOString(),
+          is_active: true,
+          custom_data: customData
+        }])
+        .select()
+        .limit(1);
+      
+      return { thread: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao criar thread:', error);
+      return { thread: null, error };
+    }
   },
 
-  // Desativa thread expirada
   async deactivateThread(id: number) {
-    const { data, error } = await supabase
-      .from('user_threads')
-      .update({ is_active: false })
-      .eq('id', id)
-      .select();
-    
-    return { thread: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const { data, error } = await supabase
+        .from('user_threads')
+        .update({ is_active: false })
+        .eq('id', id)
+        .select()
+        .limit(1);
+      
+      return { thread: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao desativar thread:', error);
+      return { thread: null, error };
+    }
   },
 
-  // Busca threads expiradas para limpeza
   async getExpiredThreads() {
-    const { data, error } = await supabase
-      .from('user_threads')
-      .select('*')
-      .eq('is_active', true)
-      .lt('expires_at', new Date().toISOString());
-    
-    return { threads: data || [], error };
+    try {
+      const { data, error } = await supabase
+        .from('user_threads')
+        .select('*')
+        .eq('is_active', true)
+        .lt('expires_at', new Date().toISOString());
+      
+      return { threads: data || [], error };
+    } catch (error) {
+      console.error('Erro ao buscar threads expiradas:', error);
+      return { threads: [], error };
+    }
   }
 };
 
@@ -280,19 +363,26 @@ export const threadsAPI = {
  */
 export const messagesAPI = {
   async getMessages(userEmail: string, agentId: number, threadId?: string) {
-    let query = supabase
-      .from('mensagens')
-      .select('*')
-      .eq('user_email', userEmail)
-      .eq('agent_id', agentId);
+    try {
+      const sanitizedEmail = sanitizeInput(userEmail);
+      
+      let query = supabase
+        .from('mensagens')
+        .select('*')
+        .eq('user_email', sanitizedEmail)
+        .eq('agent_id', agentId);
 
-    if (threadId) {
-      query = query.eq('thread_id', threadId);
+      if (threadId) {
+        query = query.eq('thread_id', sanitizeInput(threadId));
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: true });
+      
+      return { messages: data || [], error };
+    } catch (error) {
+      console.error('Erro ao buscar mensagens:', error);
+      return { messages: [], error };
     }
-
-    const { data, error } = await query.order('created_at', { ascending: true });
-    
-    return { messages: data || [], error };
   },
 
   async sendMessage(
@@ -303,29 +393,44 @@ export const messagesAPI = {
     threadId?: string,
     openaiMessageId?: string
   ) {
-    const { data, error } = await supabase
-      .from('mensagens')
-      .insert([{
-        user_email: userEmail,
-        agent_id: agentId,
-        content,
-        is_from_user: isFromUser,
-        thread_id: threadId,
-        openai_message_id: openaiMessageId,
-        timestamp: new Date().toISOString()
-      }])
-      .select();
-    
-    return { message: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedEmail = sanitizeInput(userEmail);
+      const sanitizedContent = sanitizeInput(content);
+      const sanitizedThreadId = threadId ? sanitizeInput(threadId) : undefined;
+      const sanitizedOpenaiId = openaiMessageId ? sanitizeInput(openaiMessageId) : undefined;
+      
+      const { data, error } = await supabase
+        .from('mensagens')
+        .insert([{
+          user_email: sanitizedEmail,
+          agent_id: agentId,
+          content: sanitizedContent,
+          is_from_user: isFromUser,
+          thread_id: sanitizedThreadId,
+          openai_message_id: sanitizedOpenaiId,
+          timestamp: new Date().toISOString()
+        }])
+        .select()
+        .limit(1);
+      
+      return { message: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      return { message: null, error };
+    }
   },
 
   async getAgentResponse(agentId: number, userMessage: string, userEmail: string) {
     try {
+      const sanitizedMessage = sanitizeInput(userMessage);
+      const sanitizedEmail = sanitizeInput(userEmail);
+      
       // Busca o agente no banco
       const { data: agents, error: agentError } = await supabase
         .from('agentes')
         .select('*')
-        .eq('id', agentId);
+        .eq('id', agentId)
+        .limit(1);
 
       if (agentError || !agents || agents.length === 0) {
         throw new Error('Agente não encontrado');
@@ -335,7 +440,7 @@ export const messagesAPI = {
 
       // Se não tem assistant_id, usa resposta simulada
       if (!agent.assistant_id) {
-        return this.getSimulatedResponse(agent.name, userMessage);
+        return this.getSimulatedResponse(agent.name, sanitizedMessage);
       }
 
       // Chama a edge function para processar com OpenAI
@@ -346,9 +451,9 @@ export const messagesAPI = {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          user_email: userEmail,
+          user_email: sanitizedEmail,
           agent_id: agentId,
-          message: userMessage,
+          message: sanitizedMessage,
           assistant_id: agent.assistant_id
         })
       });
@@ -389,30 +494,47 @@ export const messagesAPI = {
  */
 export const accessKeysAPI = {
   async getAllAccessKeys() {
-    const { data, error } = await supabase
-      .from('access_keys')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    return { accessKeys: data || [], error };
+    try {
+      const { data, error } = await supabase
+        .from('access_keys')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      return { accessKeys: data || [], error };
+    } catch (error) {
+      console.error('Erro ao buscar chaves:', error);
+      return { accessKeys: [], error };
+    }
   },
 
   async createAccessKey(keyValue: string) {
-    const { data, error } = await supabase
-      .from('access_keys')
-      .insert([{ key_value: keyValue }])
-      .select();
-    
-    return { accessKey: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedKey = sanitizeInput(keyValue);
+      const { data, error } = await supabase
+        .from('access_keys')
+        .insert([{ key_value: sanitizedKey }])
+        .select()
+        .limit(1);
+      
+      return { accessKey: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao criar chave:', error);
+      return { accessKey: null, error };
+    }
   },
 
   async deleteAccessKey(id: number) {
-    const { error } = await supabase
-      .from('access_keys')
-      .delete()
-      .eq('id', id);
-    
-    return { error };
+    try {
+      const { error } = await supabase
+        .from('access_keys')
+        .delete()
+        .eq('id', id);
+      
+      return { error };
+    } catch (error) {
+      console.error('Erro ao deletar chave:', error);
+      return { error };
+    }
   }
 };
 
@@ -421,46 +543,74 @@ export const accessKeysAPI = {
  */
 export const systemConfigAPI = {
   async getAllConfigs() {
-    const { data, error } = await supabase
-      .from('system_config')
-      .select('*')
-      .order('key', { ascending: true });
-    
-    return { configs: data || [], error };
+    try {
+      const { data, error } = await supabase
+        .from('system_config')
+        .select('*')
+        .order('key', { ascending: true });
+      
+      return { configs: data || [], error };
+    } catch (error) {
+      console.error('Erro ao buscar configurações:', error);
+      return { configs: [], error };
+    }
   },
 
   async getConfig(key: string) {
-    const { data, error } = await supabase
-      .from('system_config')
-      .select('*')
-      .eq('key', key);
-    
-    return { config: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedKey = sanitizeInput(key);
+      const { data, error } = await supabase
+        .from('system_config')
+        .select('*')
+        .eq('key', sanitizedKey)
+        .limit(1);
+      
+      return { config: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao buscar configuração:', error);
+      return { config: null, error };
+    }
   },
 
   async setConfig(key: string, value: string, description?: string, isSensitive: boolean = false) {
-    const { data, error } = await supabase
-      .from('system_config')
-      .upsert([{
-        key,
-        value,
-        description,
-        is_sensitive: isSensitive,
-        updated_at: new Date().toISOString()
-      }], {
-        onConflict: 'key'
-      })
-      .select();
-    
-    return { config: data && data.length > 0 ? data[0] : null, error };
+    try {
+      const sanitizedKey = sanitizeInput(key);
+      const sanitizedValue = sanitizeInput(value);
+      const sanitizedDescription = description ? sanitizeInput(description) : undefined;
+      
+      const { data, error } = await supabase
+        .from('system_config')
+        .upsert([{
+          key: sanitizedKey,
+          value: sanitizedValue,
+          description: sanitizedDescription,
+          is_sensitive: isSensitive,
+          updated_at: new Date().toISOString()
+        }], {
+          onConflict: 'key'
+        })
+        .select()
+        .limit(1);
+      
+      return { config: data && data.length > 0 ? data[0] : null, error };
+    } catch (error) {
+      console.error('Erro ao salvar configuração:', error);
+      return { config: null, error };
+    }
   },
 
   async deleteConfig(key: string) {
-    const { error } = await supabase
-      .from('system_config')
-      .delete()
-      .eq('key', key);
-    
-    return { error };
+    try {
+      const sanitizedKey = sanitizeInput(key);
+      const { error } = await supabase
+        .from('system_config')
+        .delete()
+        .eq('key', sanitizedKey);
+      
+      return { error };
+    } catch (error) {
+      console.error('Erro ao deletar configuração:', error);
+      return { error };
+    }
   }
 };

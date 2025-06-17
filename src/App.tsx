@@ -5,12 +5,13 @@ import { RegisterForm } from './components/Auth/RegisterForm';
 import { ChatInterface } from './components/Chat/ChatInterface';
 import { AdminPanel } from './components/Admin/AdminPanel';
 import { AdminRoute } from './components/Admin/AdminRoute';
+import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 
 const AuthWrapper: React.FC = () => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [showAdmin, setShowAdmin] = useState(false);
   const [isAdminRoute, setIsAdminRoute] = useState(false);
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isLoading } = useAuth();
 
   // Verifica se a URL é para admin
   useEffect(() => {
@@ -26,18 +27,33 @@ const AuthWrapper: React.FC = () => {
     return () => window.removeEventListener('popstate', checkAdminRoute);
   }, []);
 
-  // Se for rota admin, mostra o painel admin independente
+  // Proteção de rota para admin
   if (isAdminRoute) {
-    return <AdminRoute />;
+    return (
+      <ProtectedRoute requireAdmin={true} fallback={<AdminRoute />}>
+        <AdminRoute />
+      </ProtectedRoute>
+    );
   }
 
+  // Proteção de rota para chat
   if (isAuthenticated) {
     if (showAdmin && user?.is_admin) {
-      return <AdminPanel onBack={() => setShowAdmin(false)} />;
+      return (
+        <ProtectedRoute requireAdmin={true}>
+          <AdminPanel onBack={() => setShowAdmin(false)} />
+        </ProtectedRoute>
+      );
     }
-    return <ChatInterface onShowAdmin={() => setShowAdmin(true)} />;
+    
+    return (
+      <ProtectedRoute>
+        <ChatInterface onShowAdmin={() => setShowAdmin(true)} />
+      </ProtectedRoute>
+    );
   }
 
+  // Tela de autenticação
   return (
     <>
       {authMode === 'login' ? (

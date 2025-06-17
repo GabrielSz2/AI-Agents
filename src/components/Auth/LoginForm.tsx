@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, User } from 'lucide-react';
+import { Mail, Lock, ArrowRight, User, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { sanitizeInput, isValidEmail } from '../../utils/auth';
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;
@@ -17,14 +18,20 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    
+    const sanitizedEmail = sanitizeInput(email);
+    
+    if (!sanitizedEmail || !isValidEmail(sanitizedEmail)) {
+      setError('Por favor, digite um email válido.');
+      return;
+    }
 
     setError('');
     setLoading(true);
 
     try {
-      // Verifica se o e-mail existe - usando select sem single() para evitar erro 406
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}&select=id,email`, {
+      // Verifica se o e-mail existe
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(sanitizedEmail)}&select=id,email`, {
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           'Content-Type': 'application/json',
@@ -39,35 +46,41 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
       const users = await response.json();
 
       if (!Array.isArray(users) || users.length === 0) {
-        setError('E-mail incorreto. Verifique e tente novamente.');
+        setError('E-mail não encontrado. Verifique e tente novamente.');
       } else {
+        setEmail(sanitizedEmail);
         setStep('password');
       }
     } catch (err) {
       console.error('Erro ao verificar e-mail:', err);
       setError('Erro ao verificar e-mail. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
+    
+    if (!password.trim()) {
+      setError('Digite sua senha.');
+      return;
+    }
 
     setError('');
     setLoading(true);
 
     try {
-      const success = await login(email, password);
-      if (!success) {
-        setError('Senha incorreta. Tente novamente.');
+      const result = await login(email, password);
+      if (!result.success) {
+        setError(result.error || 'Erro ao fazer login.');
       }
     } catch (err) {
-      setError('Erro ao fazer login. Tente novamente.');
+      console.error('Erro no login:', err);
+      setError('Erro interno. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const resetForm = () => {
@@ -105,12 +118,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
                   className="w-full pl-10 pr-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                   placeholder="seu@email.com"
                   required
+                  maxLength={254}
                 />
               </div>
             </div>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start space-x-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                 <p className="text-red-400 text-sm">{error}</p>
               </div>
             )}
@@ -156,12 +171,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
                   placeholder="Digite sua senha"
                   required
                   autoFocus
+                  maxLength={128}
                 />
               </div>
             </div>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start space-x-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                 <p className="text-red-400 text-sm">{error}</p>
               </div>
             )}

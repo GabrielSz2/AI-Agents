@@ -77,8 +77,9 @@ export interface SystemConfig {
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (email: string, password: string, accessKey: string) => Promise<boolean>;
+  isLoading?: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (email: string, password: string, accessKey: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 

@@ -6,6 +6,7 @@ import { messagesAPI, agentsAPI } from '../../utils/supabase';
 import { Sidebar } from './Sidebar';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
+import { sanitizeInput } from '../../utils/auth';
 
 interface ChatInterfaceProps {
   onShowAdmin: () => void;
@@ -21,10 +22,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [messageId, setMessageId] = useState(0); // Para prevenir duplicatas
   
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sendingRef = useRef(false); // Ref para controlar envio duplicado
 
   // Carrega agentes ao montar o componente
   useEffect(() => {
@@ -89,18 +92,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!inputMessage.trim() || !selectedAgent || !user || isSending) {
+    // Previne envio duplicado
+    if (sendingRef.current || !inputMessage.trim() || !selectedAgent || !user || isSending) {
       return;
     }
 
-    const messageContent = inputMessage.trim();
+    const messageContent = sanitizeInput(inputMessage.trim());
+    if (!messageContent) {
+      setError('Mensagem inválida.');
+      return;
+    }
+
+    // Marca como enviando
+    sendingRef.current = true;
     setInputMessage('');
     setIsSending(true);
     setError(null);
 
+    const currentMessageId = messageId + 1;
+    setMessageId(currentMessageId);
+
     try {
       // Adiciona mensagem do usuário imediatamente
       const userMessage: Message = {
+        id: currentMessageId,
         user_email: user.email,
         agent_id: selectedAgent.id,
         content: messageContent,
@@ -136,6 +151,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
 
       // Adiciona resposta do agente
       const agentMessage: Message = {
+        id: currentMessageId + 1000, // ID diferente para evitar conflitos
         user_email: user.email,
         agent_id: selectedAgent.id,
         content: agentResponse,
@@ -163,9 +179,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
       setError('Erro ao enviar mensagem. Tente novamente.');
       
       // Remove a mensagem do usuário se houve erro
-      setMessages(prev => prev.slice(0, -1));
+      setMessages(prev => prev.filter(msg => msg.id !== currentMessageId));
+      
+      // Restaura a mensagem no input
+      setInputMessage(messageContent);
     } finally {
       setIsSending(false);
+      sendingRef.current = false;
     }
   };
 
@@ -173,6 +193,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
     setSelectedAgent(agent);
     setMessages([]);
     setError(null);
+    setMessageId(0);
   };
 
   const dismissError = () => {
@@ -275,7 +296,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
               ) : (
                 messages.map((message, index) => (
                   <MessageBubble
-                    key={index}
+                    key={`${message.id || index}-${message.is_from_user}`}
                     message={message}
                     agentName={selectedAgent.name}
                   />
@@ -300,6 +321,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
                   placeholder={`Enviar mensagem para ${selectedAgent.name}...`}
                   className="flex-1 bg-gray-700/50 border border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                   disabled={isSending || isTyping}
+                  maxLength={2000}
                 />
                 <button
                   type="submit"
