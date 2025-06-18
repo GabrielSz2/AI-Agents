@@ -21,6 +21,7 @@ export const authAPI = {
         .from('users')
         .select('id, email, is_admin')
         .eq('email', sanitizedEmail)
+        .order('id', { ascending: true })
         .limit(1);
       
       return { user: data && data.length > 0 ? data[0] : null, error };
@@ -38,6 +39,7 @@ export const authAPI = {
         .select('*')
         .eq('key_value', sanitizedKey)
         .eq('is_used', false)
+        .order('id', { ascending: true })
         .limit(1);
       
       return { accessKey: data && data.length > 0 ? data[0] : null, error };
@@ -62,6 +64,7 @@ export const authAPI = {
         .eq('key_value', sanitizedKey)
         .eq('is_used', false)
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { accessKey: data && data.length > 0 ? data[0] : null, error };
@@ -89,17 +92,16 @@ export const authAPI = {
         return { user: null, error: { message: 'Email inválido' } };
       }
 
-      // Gera hash da senha
-      const hashedPassword = await hashPassword(password);
-
+      // A senha será hasheada automaticamente pelo trigger no banco
       const { data, error } = await supabase
         .from('users')
         .insert([{ 
           email: sanitizedEmail, 
-          password: hashedPassword, 
+          password: password, // Será hasheada pelo trigger
           access_key_used: sanitizedKey 
         }])
         .select('id, email, is_admin, created_at')
+        .order('id', { ascending: true })
         .limit(1);
       
       const newUser = data && data.length > 0 ? data[0] : null;
@@ -129,6 +131,7 @@ export const authAPI = {
         .from('users')
         .select('*')
         .eq('email', sanitizedEmail)
+        .order('id', { ascending: true })
         .limit(1);
       
       if (error || !data || data.length === 0) {
@@ -137,9 +140,14 @@ export const authAPI = {
 
       const user = data[0];
       
-      // Verifica senha
-      const isValidPassword = await verifyPassword(password, user.password);
-      if (!isValidPassword) {
+      // Verifica senha usando a função do banco
+      const { data: verifyResult, error: verifyError } = await supabase
+        .rpc('verify_password', {
+          password: password,
+          hash: user.password
+        });
+
+      if (verifyError || !verifyResult) {
         return { user: null, error: { message: 'Senha incorreta' } };
       }
 
@@ -206,6 +214,7 @@ export const agentsAPI = {
           custom_fields: customFields
         }])
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { agent: data && data.length > 0 ? data[0] : null, error };
@@ -245,6 +254,7 @@ export const agentsAPI = {
         })
         .eq('id', id)
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { agent: data && data.length > 0 ? data[0] : null, error };
@@ -283,6 +293,7 @@ export const threadsAPI = {
         .eq('agent_id', agentId)
         .eq('is_active', true)
         .gte('expires_at', new Date().toISOString())
+        .order('id', { ascending: true })
         .limit(1);
       
       return { thread: data && data.length > 0 ? data[0] : null, error };
@@ -317,6 +328,7 @@ export const threadsAPI = {
           custom_data: customData
         }])
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { thread: data && data.length > 0 ? data[0] : null, error };
@@ -333,6 +345,7 @@ export const threadsAPI = {
         .update({ is_active: false })
         .eq('id', id)
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { thread: data && data.length > 0 ? data[0] : null, error };
@@ -411,6 +424,7 @@ export const messagesAPI = {
           timestamp: new Date().toISOString()
         }])
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { message: data && data.length > 0 ? data[0] : null, error };
@@ -430,6 +444,7 @@ export const messagesAPI = {
         .from('agentes')
         .select('*')
         .eq('id', agentId)
+        .order('id', { ascending: true })
         .limit(1);
 
       if (agentError || !agents || agents.length === 0) {
@@ -514,6 +529,7 @@ export const accessKeysAPI = {
         .from('access_keys')
         .insert([{ key_value: sanitizedKey }])
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { accessKey: data && data.length > 0 ? data[0] : null, error };
@@ -563,6 +579,7 @@ export const systemConfigAPI = {
         .from('system_config')
         .select('*')
         .eq('key', sanitizedKey)
+        .order('id', { ascending: true })
         .limit(1);
       
       return { config: data && data.length > 0 ? data[0] : null, error };
@@ -590,6 +607,7 @@ export const systemConfigAPI = {
           onConflict: 'key'
         })
         .select()
+        .order('id', { ascending: true })
         .limit(1);
       
       return { config: data && data.length > 0 ? data[0] : null, error };

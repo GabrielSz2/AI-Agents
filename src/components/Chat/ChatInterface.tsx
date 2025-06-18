@@ -22,12 +22,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [messageId, setMessageId] = useState(0); // Para prevenir duplicatas
   
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const sendingRef = useRef(false); // Ref para controlar envio duplicado
+  const sendingRef = useRef(false); // Controle para evitar envios duplicados
+  const messageIdRef = useRef(0); // Contador único para mensagens
 
   // Carrega agentes ao montar o componente
   useEffect(() => {
@@ -92,7 +92,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Previne envio duplicado
+    // Verificações de segurança para evitar envios duplicados
     if (sendingRef.current || !inputMessage.trim() || !selectedAgent || !user || isSending) {
       return;
     }
@@ -103,75 +103,78 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
       return;
     }
 
-    // Marca como enviando
+    // Bloqueia novos envios
     sendingRef.current = true;
-    setInputMessage('');
     setIsSending(true);
     setError(null);
 
-    const currentMessageId = messageId + 1;
-    setMessageId(currentMessageId);
+    // Gera ID único para esta conversa
+    const conversationId = Date.now() + Math.random();
+    messageIdRef.current = conversationId;
+
+    // Limpa o input imediatamente
+    const originalMessage = inputMessage;
+    setInputMessage('');
 
     try {
-      // Adiciona mensagem do usuário imediatamente
+      // 1. Adiciona mensagem do usuário na interface
       const userMessage: Message = {
-        id: currentMessageId,
+        id: conversationId,
         user_email: user.email,
         agent_id: selectedAgent.id,
         content: messageContent,
         is_from_user: true,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        created_at: new Date().toISOString()
       };
 
       setMessages(prev => [...prev, userMessage]);
 
-      // Salva mensagem do usuário no banco
-      const { message: savedUserMessage, error: userError } = await messagesAPI.sendMessage(
+      // 2. Salva mensagem do usuário no banco
+      await messagesAPI.sendMessage(
         user.email,
         selectedAgent.id,
         messageContent,
         true
       );
 
-      if (userError) {
-        console.warn('Erro ao salvar mensagem do usuário:', userError);
-      }
-
-      // Mostra indicador de digitação
+      // 3. Mostra indicador de digitação
       setIsTyping(true);
 
-      // Busca resposta do agente
+      // 4. Busca resposta do agente (apenas uma vez)
       const agentResponse = await messagesAPI.getAgentResponse(
         selectedAgent.id, 
         messageContent, 
         user.email
       );
       
+      // Verifica se ainda é a mesma conversa (evita race conditions)
+      if (messageIdRef.current !== conversationId) {
+        return;
+      }
+
       setIsTyping(false);
 
-      // Adiciona resposta do agente
+      // 5. Adiciona resposta do agente na interface
       const agentMessage: Message = {
-        id: currentMessageId + 1000, // ID diferente para evitar conflitos
+        id: conversationId + 1,
         user_email: user.email,
         agent_id: selectedAgent.id,
         content: agentResponse,
         is_from_user: false,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        created_at: new Date().toISOString()
       };
 
       setMessages(prev => [...prev, agentMessage]);
 
-      // Salva resposta do agente no banco
-      const { error: agentError } = await messagesAPI.sendMessage(
+      // 6. Salva resposta do agente no banco
+      await messagesAPI.sendMessage(
         user.email,
         selectedAgent.id,
         agentResponse,
         false
       );
-
-      if (agentError) {
-        console.warn('Erro ao salvar resposta do agente:', agentError);
-      }
 
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
@@ -179,10 +182,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
       setError('Erro ao enviar mensagem. Tente novamente.');
       
       // Remove a mensagem do usuário se houve erro
-      setMessages(prev => prev.filter(msg => msg.id !== currentMessageId));
+      setMessages(prev => prev.filter(msg => msg.id !== conversationId));
       
       // Restaura a mensagem no input
-      setInputMessage(messageContent);
+      setInputMessage(originalMessage);
     } finally {
       setIsSending(false);
       sendingRef.current = false;
@@ -190,10 +193,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
   };
 
   const handleSelectAgent = (agent: Agent) => {
+    // Cancela qualquer operação em andamento
+    sendingRef.current = false;
+    setIsSending(false);
+    setIsTyping(false);
+    
     setSelectedAgent(agent);
     setMessages([]);
     setError(null);
-    setMessageId(0);
+    setInputMessage('');
+    messageIdRef.current = 0;
   };
 
   const dismissError = () => {
@@ -296,7 +305,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onShowAdmin }) => 
               ) : (
                 messages.map((message, index) => (
                   <MessageBubble
-                    key={`${message.id || index}-${message.is_from_user}`}
+                    key={`${message.id || index}-${message.is_from_user}-${message.created_at}`}
                     message={message}
                     agentName={selectedAgent.name}
                   />
