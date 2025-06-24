@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Key, Users, Bot, ArrowLeft, MessageSquare, Settings, Sparkles, Cog } from 'lucide-react';
 import { Agent, AccessKey } from '../../types';
-import { agentsAPI, accessKeysAPI } from '../../utils/supabase';
+import { agentsAPI, accessKeysAPI, messagesAPI } from '../../utils/supabase';
 import { AgentForm } from './AgentForm';
 import { AccessKeyManager } from './AccessKeyManager';
 import { SystemConfigManager } from './SystemConfigManager';
@@ -55,11 +55,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack }) => {
   };
 
   const handleDeleteAgent = async (id: number) => {
-    if (!confirm('Tem certeza que deseja excluir este agente?')) {
+    if (!confirm('Tem certeza que deseja excluir este agente? Isso também excluirá todo o histórico de conversas associado a ele.')) {
       return;
     }
 
     try {
+      // Primeiro, deletar todas as mensagens associadas ao agente
+      const { error: messagesError } = await messagesAPI.deleteMessagesByAgentId(id);
+      if (messagesError) {
+        console.error('Erro ao deletar mensagens:', messagesError);
+        alert('Erro ao deletar mensagens do agente');
+        return;
+      }
+
+      // Depois, deletar o agente
       const { error } = await agentsAPI.deleteAgent(id);
       if (!error) {
         setAgents(agents.filter(agent => agent.id !== id));

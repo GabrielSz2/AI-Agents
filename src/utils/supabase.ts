@@ -434,6 +434,20 @@ export const messagesAPI = {
     }
   },
 
+  async deleteMessagesByAgentId(agentId: number) {
+    try {
+      const { error } = await supabase
+        .from('mensagens')
+        .delete()
+        .eq('agent_id', agentId);
+      
+      return { error };
+    } catch (error) {
+      console.error('Erro ao deletar mensagens do agente:', error);
+      return { error };
+    }
+  },
+
   async getAgentResponse(agentId: number, userMessage: string, userEmail: string) {
     try {
       const sanitizedMessage = sanitizeInput(userMessage);
@@ -448,16 +462,22 @@ export const messagesAPI = {
         .limit(1);
 
       if (agentError || !agents || agents.length === 0) {
+        console.error('Agente não encontrado:', agentError);
         throw new Error('Agente não encontrado');
       }
 
       const agent = agents[0];
+      console.log(`🤖 Processando mensagem para agente: ${agent.name}`);
+      console.log(`📋 Assistant ID: ${agent.assistant_id || 'Não configurado'}`);
 
       // Se não tem assistant_id, usa resposta simulada
       if (!agent.assistant_id) {
+        console.log('⚠️ Agente sem Assistant ID, usando resposta simulada');
         return this.getSimulatedResponse(agent.name, sanitizedMessage);
       }
 
+      console.log('🚀 Chamando edge function para OpenAI...');
+      
       // Chama a edge function para processar com OpenAI
       const response = await fetch(`${supabaseUrl}/functions/v1/chat-assistant`, {
         method: 'POST',
@@ -473,21 +493,71 @@ export const messagesAPI = {
         })
       });
 
+      console.log(`📡 Response status: ${response.status}`);
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Erro na edge function:', errorText);
-        throw new Error(`Erro na API: ${response.status}`);
+        console.error('❌ Erro na edge function:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (parseError) {
+          console.error('Erro ao fazer parse do erro:', parseError);
+          errorData = { error: errorText };
+        }
+        
+        // Se o assistant não foi encontrado (404), usar resposta simulada
+        if (response.status === 404 && (
+          errorData?.error === 'ASSISTANT_NOT_FOUND' ||
+          errorText.includes('No assistant found')
+        )) {
+          console.warn(`⚠️ Assistant ID inválido para agente ${agent.name}. Usando resposta simulada.`);
+          return this.getSimulatedResponse(agent.name, sanitizedMessage);
+        }
+        
+        throw new Error(`Erro na API: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
+      console.log('✅ Resposta recebida da edge function');
       
       if (result.error) {
+        console.error('❌ Erro no resultado:', result.error);
+        
+        // Se for erro de assistant não encontrado, usar resposta simulada
+        if (result.error === 'ASSISTANT_NOT_FOUND' || 
+            result.error.includes('No assistant found')) {
+          console.warn(`⚠️ Assistant ID inválido para agente ${agent.name}. Usando resposta simulada.`);
+          return this.getSimulatedResponse(agent.name, sanitizedMessage);
+        }
         throw new Error(result.error);
       }
 
-      return result.resposta || 'Desculpe, não consegui processar sua mensagem.';
+      const finalResponse = result.resposta || 'Desculpe, não consegui processar sua mensagem.';
+      console.log(`💬 Resposta final: ${finalResponse.substring(0, 100)}...`);
+      
+      return finalResponse;
     } catch (error) {
-      console.error('Erro ao obter resposta do agente:', error);
+      console.error('❌ Erro ao obter resposta do agente:', error);
+      
+      // Em caso de erro, tentar buscar o agente novamente para resposta simulada
+      try {
+        const { data: agents } = await supabase
+          .from('agentes')
+          .select('name')
+          .eq('id', agentId)
+          .order('id', { ascending: true })
+          .limit(1);
+        
+        if (agents && agents.length > 0) {
+          console.log('🔄 Usando resposta simulada como fallback');
+          return this.getSimulatedResponse(agents[0].name, sanitizeInput(userMessage));
+        }
+      } catch (fallbackError) {
+        console.error('❌ Erro no fallback:', fallbackError);
+      }
+      
       return 'Desculpe, estou com dificuldades técnicas no momento. Tente novamente em alguns instantes.';
     }
   },

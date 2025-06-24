@@ -15,6 +15,11 @@ serve(async (req) => {
   try {
     const { user_email, agent_id, message, assistant_id } = await req.json()
 
+    console.log(`🤖 Edge Function - Processando para Assistant ID: ${assistant_id}`)
+    console.log(`👤 Usuário: ${user_email}`)
+    console.log(`🆔 Agent ID: ${agent_id}`)
+    console.log(`💬 Mensagem: ${message}`)
+
     // Inicializar Supabase
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -29,10 +34,12 @@ serve(async (req) => {
       .single()
 
     if (configError || !configData?.value) {
+      console.error('❌ OpenAI API key não configurada:', configError)
       throw new Error('OpenAI API key não configurada')
     }
 
     const OPENAI_API_KEY = configData.value
+    console.log('✅ API key encontrada')
 
     // Verificar se já existe uma thread ativa
     const { data: existingThread, error: threadError } = await supabaseClient
@@ -48,6 +55,8 @@ serve(async (req) => {
 
     // Se não existir thread ativa, criar uma nova
     if (!thread_id) {
+      console.log('🆕 Criando nova thread...')
+      
       const threadRes = await fetch('https://api.openai.com/v1/threads', {
         method: 'POST',
         headers: {
@@ -59,11 +68,13 @@ serve(async (req) => {
 
       if (!threadRes.ok) {
         const errorText = await threadRes.text()
+        console.error('❌ Erro ao criar thread:', errorText)
         throw new Error(`Erro ao criar thread: ${threadRes.status} - ${errorText}`)
       }
 
       const threadData = await threadRes.json()
       thread_id = threadData.id
+      console.log(`✅ Thread criada: ${thread_id}`)
 
       // Salvar thread no banco
       const expiresAt = new Date()
@@ -78,9 +89,13 @@ serve(async (req) => {
           expires_at: expiresAt.toISOString(),
           is_active: true
         })
+    } else {
+      console.log(`♻️ Usando thread existente: ${thread_id}`)
     }
 
     // Adicionar mensagem do usuário à thread
+    console.log('📝 Adicionando mensagem à thread...')
+    
     const messageRes = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       method: 'POST',
       headers: {
@@ -96,10 +111,15 @@ serve(async (req) => {
 
     if (!messageRes.ok) {
       const errorText = await messageRes.text()
+      console.error('❌ Erro ao adicionar mensagem:', errorText)
       throw new Error(`Erro ao adicionar mensagem: ${messageRes.status} - ${errorText}`)
     }
 
+    console.log('✅ Mensagem adicionada à thread')
+
     // Executar o assistant
+    console.log(`🚀 Executando assistant ${assistant_id}...`)
+    
     const runRes = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs`, {
       method: 'POST',
       headers: {
@@ -114,12 +134,41 @@ serve(async (req) => {
 
     if (!runRes.ok) {
       const errorText = await runRes.text()
+      console.error('❌ Erro ao executar assistant:', errorText)
+      
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch (parseError) {
+        console.error('Erro ao fazer parse do erro:', parseError)
+        errorData = { error: { message: errorText } }
+      }
+      
+      // Se o assistant não existe (404), retornar erro específico para fallback
+      if (runRes.status === 404 && errorData.error?.message?.includes('No assistant found')) {
+        console.warn(`⚠️ Assistant não encontrado: ${assistant_id}`)
+        return new Response(
+          JSON.stringify({
+            error: 'ASSISTANT_NOT_FOUND',
+            message: 'Assistant ID inválido ou não encontrado',
+            fallback_required: true,
+            assistant_id: assistant_id
+          }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        )
+      }
+      
       throw new Error(`Erro ao executar assistant: ${runRes.status} - ${errorText}`)
     }
 
     const run = await runRes.json()
+    console.log(`✅ Run iniciado: ${run.id}`)
 
     if (run.error) {
+      console.error('❌ Falha ao iniciar run:', run.error)
       throw new Error(`Falha ao iniciar run: ${JSON.stringify(run.error)}`)
     }
 
@@ -127,6 +176,8 @@ serve(async (req) => {
     let status = 'queued'
     let attempts = 0
     const maxAttempts = 30 // 30 segundos máximo
+
+    console.log('⏳ Aguardando conclusão da execução...')
 
     while (status !== 'completed' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 1000))
@@ -140,24 +191,32 @@ serve(async (req) => {
       })
 
       if (!checkRunRes.ok) {
+        console.error(`❌ Erro ao verificar status: ${checkRunRes.status}`)
         throw new Error(`Erro ao verificar status: ${checkRunRes.status}`)
       }
 
       const runData = await checkRunRes.json()
       status = runData.status
 
+      console.log(`📊 Status da execução (tentativa ${attempts}): ${status}`)
+
       if (status === 'failed') {
+        console.error('❌ Run falhou:', runData.last_error)
         throw new Error(`Run falhou: ${JSON.stringify(runData.last_error)}`)
       }
 
       if (status === 'expired') {
+        console.error('⏰ Run expirou')
         throw new Error('Run expirou - tempo limite excedido')
       }
     }
 
     if (status !== 'completed') {
+      console.error('⏰ Timeout na execução')
       throw new Error('Timeout - execução não foi concluída no tempo esperado')
     }
+
+    console.log('✅ Execução concluída, buscando resposta...')
 
     // Buscar a resposta do assistant
     const messagesRes = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
@@ -168,6 +227,7 @@ serve(async (req) => {
     })
 
     if (!messagesRes.ok) {
+      console.error(`❌ Erro ao buscar mensagens: ${messagesRes.status}`)
       throw new Error(`Erro ao buscar mensagens: ${messagesRes.status}`)
     }
 
@@ -179,6 +239,8 @@ serve(async (req) => {
       .sort((a: any, b: any) => b.created_at - a.created_at)
 
     const lastMessage = assistantMessages[0]?.content?.[0]?.text?.value || 'Erro ao buscar resposta.'
+
+    console.log(`💬 Resposta obtida: ${lastMessage.substring(0, 100)}...`)
 
     // Salvar mensagem no banco
     await supabaseClient
@@ -192,11 +254,14 @@ serve(async (req) => {
         openai_message_id: assistantMessages[0]?.id
       })
 
+    console.log('✅ Resposta salva no banco')
+
     return new Response(
       JSON.stringify({
         resposta: lastMessage,
         thread_id,
-        run_id: run.id
+        run_id: run.id,
+        assistant_id: assistant_id
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -204,7 +269,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Erro na edge function:', error)
+    console.error('❌ Erro na edge function:', error)
     
     return new Response(
       JSON.stringify({
